@@ -21,13 +21,13 @@ def create_app():
     
     return app
 
+# Create the Flask app instance
+app = create_app()
+
 if __name__ == '__main__':
     # Initialize database on startup
     print("Starting ROBLOX Replay System...")
     init_db()
-    
-    # Create Flask app
-    app = create_app()
     
     # Get port from environment (Render uses PORT env var)
     port = int(os.environ.get('PORT', 5000))
