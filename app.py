@@ -751,7 +751,11 @@ HTML_TEMPLATE = '''
         }
         
         function playLoop() {
-            if (!isPlaying || currentFrame >= gameData.length - 1) {
+            if (!isPlaying) {
+                return;
+            }
+            
+            if (currentFrame >= gameData.length - 1) {
                 isPlaying = false;
                 document.getElementById('playPause').textContent = 'Play';
                 return;
