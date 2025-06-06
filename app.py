@@ -22,6 +22,7 @@ DATABASE = 'roblox_replays.db'
 
 def init_db():
     """Initialize the SQLite database"""
+    print("Initializing database...")
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
     
@@ -57,6 +58,7 @@ def init_db():
     
     conn.commit()
     conn.close()
+    print("Database initialized successfully!")
 
 def get_db():
     """Get database connection"""
@@ -64,11 +66,40 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+def ensure_db_exists():
+    """Ensure database exists and is initialized"""
+    if not os.path.exists(DATABASE):
+        print("Database file doesn't exist, creating...")
+        init_db()
+    else:
+        # Check if tables exist
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='frames'")
+            if not cursor.fetchone():
+                print("Tables don't exist, initializing...")
+                conn.close()
+                init_db()
+            else:
+                conn.close()
+                print("Database already exists and is properly initialized")
+        except Exception as e:
+            print(f"Error checking database: {e}")
+            print("Reinitializing database...")
+            init_db()
+
+# Initialize database on startup
+ensure_db_exists()
+
 # API Routes
 @app.route('/api/record', methods=['POST'])
 def record_frame():
     """Receive frame data from ROBLOX server"""
     try:
+        # Ensure database exists before processing
+        ensure_db_exists()
+        
         # Handle both JSON and form data
         if request.is_json:
             data = request.get_json()
@@ -114,6 +145,12 @@ def record_frame():
         print(f"Processing frame {frame_number} for server {server_id}")
         print(f"Parts count: {len(data.get('Parts', []))}, Players count: {len(data.get('Players', []))}")
         
+        # Ensure server exists first
+        cursor.execute('''
+            INSERT OR IGNORE INTO servers (server_id, place_id, creator_id, game_name)
+            VALUES (?, ?, ?, ?)
+        ''', (server_id, data.get('GameInfo', {}).get('PlaceId'), 0, 'Unknown Game'))
+        
         # Insert frame
         cursor.execute('''
             INSERT INTO frames (server_id, frame_number, timestamp, parts_data, players_data, game_info)
@@ -135,12 +172,23 @@ def record_frame():
         print(f"ERROR in record_frame: {str(e)}")
         print(f"Request data: {request.data}")
         print(f"Request headers: {dict(request.headers)}")
+        
+        # Try to reinitialize database if there's a database error
+        if "no such table" in str(e).lower():
+            print("Database table missing, reinitializing...")
+            try:
+                init_db()
+                return jsonify({'error': 'Database reinitialized, please retry'}), 503
+            except Exception as init_error:
+                print(f"Failed to reinitialize database: {init_error}")
+        
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/servers', methods=['GET'])
 def get_servers():
     """Get list of available servers"""
     try:
+        ensure_db_exists()
         conn = get_db()
         cursor = conn.cursor()
         
@@ -174,6 +222,7 @@ def get_servers():
 def get_server_frames(server_id):
     """Get all frames for a specific server"""
     try:
+        ensure_db_exists()
         conn = get_db()
         cursor = conn.cursor()
         
@@ -204,6 +253,7 @@ def get_server_frames(server_id):
 def get_specific_frame(server_id, frame_number):
     """Get a specific frame"""
     try:
+        ensure_db_exists()
         conn = get_db()
         cursor = conn.cursor()
         
@@ -230,6 +280,31 @@ def get_specific_frame(server_id, frame_number):
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    try:
+        ensure_db_exists()
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM servers")
+        server_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM frames")
+        frame_count = cursor.fetchone()[0]
+        conn.close()
+        
+        return jsonify({
+            'status': 'healthy',
+            'database': 'connected',
+            'servers': server_count,
+            'frames': frame_count
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e)
+        }), 500
 
 # Web Interface
 @app.route('/')
@@ -767,11 +842,13 @@ HTML_TEMPLATE = '''
 '''
 
 if __name__ == '__main__':
-    # Initialize database
+    # Initialize database on startup
+    print("Starting ROBLOX Replay System...")
     init_db()
     
     # Get port from environment (Render uses PORT env var)
     port = int(os.environ.get('PORT', 5000))
     
     # Run the app
+    print(f"Starting Flask app on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
