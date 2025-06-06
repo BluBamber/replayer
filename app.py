@@ -12,7 +12,13 @@ from database import init_db
 
 def create_app():
     """Create and configure the Flask application"""
-    app = Flask(__name__)
+    # Get the absolute path to the project root directory
+    template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'templates'))
+    static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'static'))
+    
+    app = Flask(__name__,
+                template_folder=template_dir,
+                static_folder=static_dir)
     CORS(app)
     
     # Register blueprints
