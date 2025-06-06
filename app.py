@@ -69,13 +69,25 @@ def get_db():
 def record_frame():
     """Receive frame data from ROBLOX server"""
     try:
-        data = request.get_json()
+        # Handle both JSON and form data
+        if request.is_json:
+            data = request.get_json()
+        else:
+            # Try to parse as JSON from text
+            try:
+                data = json.loads(request.data.decode('utf-8'))
+            except:
+                data = request.form.to_dict()
         
         if not data:
+            print("ERROR: No data provided")
             return jsonify({'error': 'No data provided'}), 400
+        
+        print(f"Received data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
         
         server_id = data.get('ServerId')
         if not server_id:
+            print(f"ERROR: ServerId missing. Data: {data}")
             return jsonify({'error': 'ServerId required'}), 400
         
         conn = get_db()
@@ -83,6 +95,7 @@ def record_frame():
         
         # Handle server start
         if data.get('Type') == 'ServerStart':
+            print(f"Registering server: {server_id}")
             cursor.execute('''
                 INSERT OR REPLACE INTO servers (server_id, place_id, creator_id, game_name)
                 VALUES (?, ?, ?, ?)
@@ -98,6 +111,9 @@ def record_frame():
         players_data = json.dumps(data.get('Players', []))
         game_info = json.dumps(data.get('GameInfo', {}))
         
+        print(f"Processing frame {frame_number} for server {server_id}")
+        print(f"Parts count: {len(data.get('Parts', []))}, Players count: {len(data.get('Players', []))}")
+        
         # Insert frame
         cursor.execute('''
             INSERT INTO frames (server_id, frame_number, timestamp, parts_data, players_data, game_info)
@@ -112,9 +128,13 @@ def record_frame():
         conn.commit()
         conn.close()
         
+        print(f"Successfully stored frame {frame_number}")
         return jsonify({'status': 'success', 'frame': frame_number})
         
     except Exception as e:
+        print(f"ERROR in record_frame: {str(e)}")
+        print(f"Request data: {request.data}")
+        print(f"Request headers: {dict(request.headers)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/servers', methods=['GET'])
