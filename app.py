@@ -488,13 +488,10 @@ HTML_TEMPLATE = '''
             <input type="range" id="frameSlider" min="0" max="100" value="0">
             <button id="nextFrame">▶</button>
             <button id="resetCamera">Reset Camera</button>
-            <span style="color: white; font-size: 12px;">Speed:</span>
-            <select id="speedControl" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 5px; border-radius: 3px;">
-                <option value="0.5">0.5x</option>
-                <option value="1" selected>1x</option>
-                <option value="2">2x</option>
-                <option value="4">4x</option>
-            </select>
+            <div id="fpsControl">
+                <span>FPS:</span>
+                <input type="number" id="fpsInput" min="0.1" max="60" step="0.1" value="1">
+            </div>
         </div>
     </div>
 
@@ -508,6 +505,10 @@ HTML_TEMPLATE = '''
         let parts = new Map();
         let players = new Map();
         let currentServerId = null;
+        let animationFrameId = null;
+        let lastFrameTime = 0;
+        let frameInterval = 1000; // Default 1 second per frame
+        let targetFPS = 1; // Default 1 FPS
         
         // Camera controls
         let cameraControls = {
@@ -746,11 +747,29 @@ HTML_TEMPLATE = '''
             document.getElementById('playPause').textContent = isPlaying ? 'Pause' : 'Play';
             
             if (isPlaying) {
-                playLoop();
+                lastFrameTime = performance.now();
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                }
+                animationFrameId = requestAnimationFrame(playLoop);
+            } else {
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                    animationFrameId = null;
+                }
             }
         }
         
-        function playLoop() {
+        function updateFrameInterval() {
+            targetFPS = parseFloat(document.getElementById('fpsInput').value);
+            if (isNaN(targetFPS) || targetFPS <= 0) {
+                targetFPS = 1;
+                document.getElementById('fpsInput').value = targetFPS;
+            }
+            frameInterval = 1000 / targetFPS;
+        }
+        
+        function playLoop(timestamp) {
             if (!isPlaying) {
                 return;
             }
@@ -758,14 +777,24 @@ HTML_TEMPLATE = '''
             if (currentFrame >= gameData.length - 1) {
                 isPlaying = false;
                 document.getElementById('playPause').textContent = 'Play';
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                    animationFrameId = null;
+                }
                 return;
             }
             
-            currentFrame++;
-            renderFrame(gameData[currentFrame]);
-            document.getElementById('frameSlider').value = currentFrame;
+            const elapsed = timestamp - lastFrameTime;
+            const targetInterval = frameInterval;
             
-            setTimeout(playLoop, 1000 / (30 * playbackSpeed));
+            if (elapsed >= targetInterval) {
+                currentFrame++;
+                renderFrame(gameData[currentFrame]);
+                document.getElementById('frameSlider').value = currentFrame;
+                lastFrameTime = timestamp;
+            }
+            
+            animationFrameId = requestAnimationFrame(playLoop);
         }
         
         function nextFrame() {
@@ -791,6 +820,50 @@ HTML_TEMPLATE = '''
             updateCamera();
         }
         
+        // Add FPS input handler
+        document.getElementById('fpsInput').addEventListener('change', (e) => {
+            updateFrameInterval();
+        });
+        
+        document.getElementById('fpsInput').addEventListener('input', (e) => {
+            updateFrameInterval();
+        });
+        
+        // Update reset function
+        function resetPlayback() {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+            isPlaying = false;
+            currentFrame = 0;
+            document.getElementById('playPause').textContent = 'Play';
+            document.getElementById('frameSlider').value = 0;
+            document.getElementById('fpsInput').value = targetFPS;
+            renderFrame(gameData[0]);
+        }
+        
+        // Add event listener for server change
+        document.getElementById('loadServer').addEventListener('click', async () => {
+            const serverId = document.getElementById('serverSelect').value;
+            if (serverId) {
+                document.getElementById('loading').style.display = 'block';
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                    animationFrameId = null;
+                }
+                isPlaying = false;
+                const success = await loadServerData(serverId);
+                document.getElementById('loading').style.display = 'none';
+                
+                if (success) {
+                    document.getElementById('info').style.display = 'block';
+                    document.getElementById('controls').style.display = 'flex';
+                    resetPlayback();
+                }
+            }
+        });
+        
         // Event listeners
         document.addEventListener('DOMContentLoaded', async () => {
             initScene();
@@ -803,34 +876,25 @@ HTML_TEMPLATE = '''
             document.getElementById('serverSelector').style.display = 'block';
             
             // Setup controls
-            document.getElementById('loadServer').addEventListener('click', async () => {
-                const serverId = document.getElementById('serverSelect').value;
-                if (serverId) {
-                    document.getElementById('loading').style.display = 'block';
-                    const success = await loadServerData(serverId);
-                    document.getElementById('loading').style.display = 'none';
-                    
-                    if (success) {
-                        document.getElementById('info').style.display = 'block';
-                        document.getElementById('controls').style.display = 'flex';
-                    }
-                }
-            });
-            
             document.getElementById('playPause').addEventListener('click', playPause);
             document.getElementById('nextFrame').addEventListener('click', nextFrame);
             document.getElementById('prevFrame').addEventListener('click', prevFrame);
             document.getElementById('resetCamera').addEventListener('click', resetCamera);
             
             document.getElementById('frameSlider').addEventListener('input', (e) => {
-                currentFrame = parseInt(e.target.value);
-                if (gameData[currentFrame]) {
+                const newFrame = parseInt(e.target.value);
+                if (newFrame !== currentFrame && newFrame >= 0 && newFrame < gameData.length) {
+                    currentFrame = newFrame;
                     renderFrame(gameData[currentFrame]);
                 }
             });
             
-            document.getElementById('speedControl').addEventListener('change', (e) => {
-                playbackSpeed = parseFloat(e.target.value);
+            document.getElementById('fpsInput').addEventListener('change', (e) => {
+                updateFrameInterval();
+            });
+            
+            document.getElementById('fpsInput').addEventListener('input', (e) => {
+                updateFrameInterval();
             });
         });
         
