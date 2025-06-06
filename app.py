@@ -765,7 +765,7 @@ HTML_TEMPLATE = '''
             renderFrame(gameData[currentFrame]);
             document.getElementById('frameSlider').value = currentFrame;
             
-            setTimeout(playLoop, 1000 / playbackSpeed);
+            setTimeout(playLoop, 1000 / (30 * playbackSpeed));
         }
         
         function nextFrame() {
