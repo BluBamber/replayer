@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Replay System Debug Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        #controls {
+            background: #f0f0f0;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        
+        button {
+            padding: 10px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        
+        #frameSlider {
+            width: 100%;
+            margin: 20px 0;
+        }
+        
+        #info {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 20px 0;
+        }
+        
+        #output {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 20px 0;
+            min-height: 200px;
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <h1>Replay System Debug</h1>
+    
+    <div id="serverSelector">
+        <h2>Server Selection</h2>
+        <select id="serverSelect">
+            <option value="">Loading servers...</option>
+        </select>
+        <button id="loadServer">Load Server</button>
+        <p id="serverStatus"></p>
+    </div>
+    
+    <div id="info">
+        <p><strong>Server:</strong> <span id="currentServer">None</span></p>
+        <p><strong>Frame:</strong> <span id="currentFrame">0</span> / <span id="totalFrames">0</span></p>
+        <p><strong>Players:</strong> <span id="playerCount">0</span></p>
+        <p><strong>Parts:</strong> <span id="partCount">0</span></p>
+    </div>
+    
+    <div id="controls">
+        <h2>Playback Controls</h2>
+        <button id="playPause">Play</button>
+        <button id="prevFrame">Previous Frame</button>
+        <button id="nextFrame">Next Frame</button>
+        <div>
+            <label for="frameSlider">Frame:</label>
+            <input type="range" id="frameSlider" min="0" max="100" value="0">
+        </div>
+        <div>
+            <label for="speedControl">Speed:</label>
+            <select id="speedControl">
+                <option value="0.5">0.5x</option>
+                <option value="1" selected>1x</option>
+                <option value="2">2x</option>
+                <option value="4">4x</option>
+            </select>
+        </div>
+    </div>
+    
+    <div>
+        <h2>Debug Output</h2>
+        <div id="output"></div>
+    </div>
+    
+    <script>
+        // State variables
+        let gameData = [];
+        let currentFrame = 0;
+        let isPlaying = false;
+        let playbackSpeed = 1;
+        
+        // Debug logging function
+        function log(message) {
+            const output = document.getElementById('output');
+            output.innerHTML += `<p>[${new Date().toLocaleTimeString()}] ${message}</p>`;
+            output.scrollTop = output.scrollHeight;
+            console.log(message);
+        }
+        
+        // Load servers list
+        async function loadServers() {
+            try {
+                log("Loading servers...");
+                const response = await fetch('/api/servers');
+                const servers = await response.json();
+                log(`Loaded ${servers.length} servers`);
+                
+                const select = document.getElementById('serverSelect');
+                select.innerHTML = '<option value="">Choose a server...</option>';
+                
+                servers.forEach(server => {
+                    const option = document.createElement('option');
+                    option.value = server.server_id;
+                    option.textContent = `${server.game_name || 'Unknown Game'} (${server.frame_count} frames)`;
+                    select.appendChild(option);
+                });
+                
+                return servers;
+            } catch (error) {
+                log(`Error loading servers: ${error.message}`);
+                return [];
+            }
+        }
+        
+        // Load server data
+        async function loadServerData(serverId) {
+            try {
+                log(`Loading data for server: ${serverId}`);
+                document.getElementById('serverStatus').textContent = "Loading frames...";
+                
+                const response = await fetch(`/api/server/${serverId}/frames`);
+                const frames = await response.json();
+                
+                gameData = frames;
+                currentFrame = 0;
+                
+                log(`Loaded ${frames.length} frames`);
+                document.getElementById('serverStatus').textContent = `Loaded ${frames.length} frames`;
+                
+                document.getElementById('totalFrames').textContent = frames.length;
+                document.getElementById('frameSlider').max = frames.length - 1;
+                document.getElementById('currentServer').textContent = serverId;
+                
+                if (frames.length > 0) {
+                    updateFrameInfo(frames[0]);
+                    return true;
+                }
+                
+                return false;
+            } catch (error) {
+                log(`Error loading server data: ${error.message}`);
+                document.getElementById('serverStatus').textContent = "Error loading data";
+                return false;
+            }
+        }
+        
+        // Update frame info
+        function updateFrameInfo(frameData) {
+            if (!frameData) return;
+            
+            document.getElementById('currentFrame').textContent = frameData.frame;
+            document.getElementById('playerCount').textContent = frameData.players ? frameData.players.length : 0;
+            document.getElementById('partCount').textContent = frameData.parts ? frameData.parts.length : 0;
+            document.getElementById('frameSlider').value = frameData.frame;
+            
+            log(`Displayed frame ${frameData.frame}`);
+        }
+        
+        // Playback functions
+        function playPause() {
+            isPlaying = !isPlaying;
+            document.getElementById('playPause').textContent = isPlaying ? 'Pause' : 'Play';
+            log(`Playback: ${isPlaying ? 'Playing' : 'Paused'}`);
+            
+            if (isPlaying) {
+                playLoop();
+            }
+        }
+        
+        function playLoop() {
+            if (!isPlaying) {
+                return;
+            }
+            
+            if (currentFrame >= gameData.length - 1) {
+                isPlaying = false;
+                document.getElementById('playPause').textContent = 'Play';
+                log("Reached end of replay");
+                return;
+            }
+            
+            currentFrame++;
+            updateFrameInfo(gameData[currentFrame]);
+            
+            setTimeout(playLoop, 1000 / (30 * playbackSpeed));
+        }
+        
+        function nextFrame() {
+            if (currentFrame < gameData.length - 1) {
+                currentFrame++;
+                updateFrameInfo(gameData[currentFrame]);
+                log(`Advanced to frame ${currentFrame}`);
+            } else {
+                log("Already at last frame");
+            }
+        }
+        
+        function prevFrame() {
+            if (currentFrame > 0) {
+                currentFrame--;
+                updateFrameInfo(gameData[currentFrame]);
+                log(`Went back to frame ${currentFrame}`);
+            } else {
+                log("Already at first frame");
+            }
+        }
+        
+        // Event listeners
+        document.addEventListener('DOMContentLoaded', async () => {
+            log("Page loaded");
+            
+            // Load servers
+            await loadServers();
+            
+            // Add event listeners
+            document.getElementById('loadServer').addEventListener('click', async () => {
+                const serverId = document.getElementById('serverSelect').value;
+                if (serverId) {
+                    await loadServerData(serverId);
+                } else {
+                    log("No server selected");
+                }
+            });
+            
+            document.getElementById('playPause').addEventListener('click', playPause);
+            document.getElementById('nextFrame').addEventListener('click', nextFrame);
+            document.getElementById('prevFrame').addEventListener('click', prevFrame);
+            
+            document.getElementById('frameSlider').addEventListener('input', (e) => {
+                currentFrame = parseInt(e.target.value);
+                log(`Slider changed to frame ${currentFrame}`);
+                if (gameData[currentFrame]) {
+                    updateFrameInfo(gameData[currentFrame]);
+                }
+            });
+            
+            document.getElementById('speedControl').addEventListener('change', (e) => {
+                playbackSpeed = parseFloat(e.target.value);
+                log(`Speed changed to ${playbackSpeed}x`);
+            });
+        });
+    </script>
+</body>
+</html> 

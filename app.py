@@ -5,19 +5,27 @@ Deploy this to Render.com as a Web Service
 """
 
 import os
-from flask import Flask
+from flask import Flask, send_from_directory
 from flask_cors import CORS
 from routes import api, views
 from database import init_db
 
 def create_app():
     """Create and configure the Flask application"""
-    app = Flask(__name__)
+    app = Flask(__name__, 
+                static_folder='static',
+                template_folder='templates')
     CORS(app)
     
     # Register blueprints
     app.register_blueprint(api, url_prefix='/api')
     app.register_blueprint(views)
+    
+    # Ensure the instance folder exists
+    try:
+        os.makedirs(app.instance_path)
+    except OSError:
+        pass
     
     return app
 
